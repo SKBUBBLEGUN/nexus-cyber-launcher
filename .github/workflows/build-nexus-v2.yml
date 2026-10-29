@@ -73,7 +73,7 @@ jobs:
           echo '--- MainActivity.kt screen functions ---'
           grep -nE '^(private )?fun |^@Composable|NavigationBar|BottomNavigation|Operation|Log|Apps|NexusApp|Scaffold|LazyColumn|Column\(' "$SOURCE" | head -240
           echo '--- MainActivity.kt relevant source ---'
-          sed -n '1,320p' "$SOURCE"
+          sed -n '280,390p' "$SOURCE"
 
       - name: Apply Kotlin compile fixes
         shell: bash

@@ -220,6 +220,18 @@ jobs:
           print("Applied Kotlin compile fixes and NEXUS visual refresh.")
           PY
 
+      - name: Verify patched UI and permissions hooks
+        shell: bash
+        run: |
+          SOURCE="$PROJECT_DIR/app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt"
+          test -s "$SOURCE"
+          echo '--- Navigation items after patch ---'
+          grep -nE 'NavItem\\(|NavigationBar|BottomNavigation' "$SOURCE" || true
+          echo '--- Nexus app screen and operation log markers ---'
+          grep -nEi 'APP MATRIX|DIRETÓRIO DE APLICATIVOS|operation|operaç|log|permiss|notification|notifica' "$SOURCE" | head -100 || true
+          echo '--- Compile inputs ---'
+          find "$PROJECT_DIR/app/src/main" -maxdepth 4 -type f | sort | head -100
+
       - name: Build debug APK
         shell: bash
         run: |

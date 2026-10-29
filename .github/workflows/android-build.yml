@@ -1,0 +1,67 @@
+
+name: NEXUS RED - Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'nexus-red.zip'
+      - '.github/workflows/android-build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Instalar ferramentas
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
+
+      - name: Extrair projeto ZIP
+        run: |
+          if [ ! -f nexus-red.zip ]; then
+            echo "ERRO: coloque nexus-red.zip na raiz do repositorio."
+            exit 1
+          fi
+          mkdir -p extracted
+          unzip -q nexus-red.zip -d extracted
+
+      - name: Localizar projeto Android
+        run: |
+          GRADLEW=$(find extracted -type f -name gradlew | head -n 1)
+
+          if [ -z "$GRADLEW" ]; then
+            echo "ERRO: nao encontrei gradlew no ZIP."
+            echo "O ZIP precisa conter um projeto Android Gradle."
+            find extracted -maxdepth 3 -type f | head -n 80
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$(dirname "$GRADLEW")" >> "$GITHUB_ENV"
+
+      - name: Compilar APK
+        run: |
+          cd "$PROJECT_DIR"
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Publicar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NEXUS-RED-APK
+          path: extracted/**/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 14

@@ -119,15 +119,90 @@ jobs:
           print("Applied compile fixes to", source)
           PY
 
-      - name: Inspect app UI source for redesign
+      - name: Add fluid Nexus animations and compact operation log
         shell: bash
         run: |
-          echo "=== MainActivity.kt path ==="
-          find "$PROJECT_DIR/app/src/main" -type f -name '*.kt' -print
-          echo "=== MainActivity.kt ==="
-          sed -n '1,420p' "$PROJECT_DIR/app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt"
-          echo "=== resource files ==="
-          find "$PROJECT_DIR/app/src/main/res" -maxdepth 3 -type f -print | head -100
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          source = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt"
+          code = source.read_text(encoding="utf-8")
+
+          # Compose page transitions and animation primitives.
+          if "import androidx.compose.animation.*" not in code:
+              code = code.replace("import androidx.compose.foundation.background\\n",
+                                  "import androidx.compose.animation.*\\nimport androidx.compose.animation.core.*\\nimport androidx.compose.foundation.background\\n", 1)
+
+          old = "                when (page) {"
+          new = """                AnimatedContent(
+                      targetState = page,
+                      transitionSpec = {
+                          (fadeIn(animationSpec = tween(240)) +
+                              slideInHorizontally(initialOffsetX = { it / 12 }, animationSpec = tween(240))) togetherWith
+                              (fadeOut(animationSpec = tween(160)) +
+                                  slideOutHorizontally(targetOffsetX = { -it / 24 }, animationSpec = tween(160)))
+                      },
+                      label = "nexus_page_transition"
+                  ) { activePage ->
+                      when (activePage) {"""
+          if "label = \\"nexus_page_transition\\"" not in code:
+              if old not in code:
+                  raise SystemExit("Could not find main page switch; refusing to patch blindly.")
+              code = code.replace(old, new, 1)
+              close_marker = """                }
+
+                  Spacer(Modifier.height(8.dp))
+                  Row("""
+              if close_marker not in code:
+                  close_marker = """                }
+
+                Spacer(Modifier.height(8.dp))
+                Row("""
+              if close_marker not in code:
+                  raise SystemExit("Could not find end of page switch; refusing to patch blindly.")
+              code = code.replace(close_marker, close_marker.replace("                }", "                      }\\n                  }", 1), 1)
+
+          # Subtle breathing pulse on the online indicator.
+          header_marker = """private fun Header(palette: NexusPalette) {
+              Row("""
+          header_new = """private fun Header(palette: NexusPalette) {
+              val pulseTransition = rememberInfiniteTransition(label = "nexus_online_pulse")
+              val pulse by pulseTransition.animateFloat(
+                  initialValue = 0.58f,
+                  targetValue = 1f,
+                  animationSpec = infiniteRepeatable(
+                      animation = tween(1100, easing = FastOutSlowInEasing),
+                      repeatMode = RepeatMode.Reverse
+                  ),
+                  label = "nexus_online_alpha"
+              )
+              Row("""
+          if "nexus_online_pulse" not in code:
+              if header_marker not in code:
+                  raise SystemExit("Could not find Header composable.")
+              code = code.replace(header_marker, header_new, 1)
+              code = code.replace('Text("● ONLINE", color = palette.accent, fontSize = 9.sp, fontWeight = FontWeight.Bold)',
+                                  'Text("● ONLINE", color = palette.accent.copy(alpha = pulse), fontSize = 9.sp, fontWeight = FontWeight.Bold)')
+
+          # Make the home log compact so it doesn't dominate the dashboard.
+          log_start = '                        HudPanel("LOG DE OPERAÇÕES", palette.secondary, palette.accent) {'
+          log_end = """                        }
+                          Spacer(Modifier.weight(1f))"""
+          if log_start in code:
+              start = code.index(log_start)
+              end = code.find(log_end, start)
+              if end == -1:
+                  raise SystemExit("Could not find end of operation log panel.")
+              end += len("                        }")
+              compact = """                        HudPanel("LOG // ÚLTIMO EVENTO", palette.secondary, palette.accent) {
+                              Text("● Interface inicializada  •  Perfil ${palette.name}", color = Muted, fontSize = 9.sp, maxLines = 1)
+                          }"""
+              code = code[:start] + compact + code[end:]
+
+          source.write_text(code, encoding="utf-8")
+          print("Applied page transitions, online pulse, and compact log.")
+          PY
 
       - name: Build debug APK
         shell: bash

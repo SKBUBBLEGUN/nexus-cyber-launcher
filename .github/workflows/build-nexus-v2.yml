@@ -98,10 +98,6 @@ jobs:
               "Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)",
               "Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)"
           )
-          code = code.replace(
-              "Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS",
-              "android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"
-          )
           marker = "@Composable\nprivate fun NexusApp("
           optin = "@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)\n@Composable\nprivate fun NexusApp("
           if marker in code and optin not in code:

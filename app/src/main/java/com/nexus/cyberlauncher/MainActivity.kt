@@ -216,7 +216,7 @@ private data class AppInfo(val label: String, val pkg: String, val icon: android
                             Action("GUIA DE PERMISSÕES", Icons.Default.Info, accent, Modifier.fillMaxWidth()) { showHelp = true }
                             Action("AJUSTES DO ANDROID", Icons.Default.Settings, accent, Modifier.fillMaxWidth()) { ctx.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                         }
-                        Panel(accent, "SOBRE", Icons.Default.Memory) { Text("NEXUS CYBER LAUNCHER 3.0.0", color = FG, fontSize = 10.sp, fontFamily = FontFamily.Monospace); Text("TACTICAL HUD • FLUID TRANSITIONS", color = DIM, fontSize = 8.sp) }
+                        Panel(accent, "SOBRE", Icons.Default.Memory) { Text("NEXUS 3.0.0", color = FG, fontSize = 10.sp, fontFamily = FontFamily.Monospace); Text("TACTICAL HUD • FLUID TRANSITIONS", color = DIM, fontSize = 8.sp) }
                     }
                 }
             }

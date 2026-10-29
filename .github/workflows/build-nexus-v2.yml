@@ -1,12 +1,12 @@
-name: NEXUS RED v2 corrigido - Android APK
+name: NEXUS Cyber Launcher - Build APK
 
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
       - 'NEXUS-RED-v2-corrigido.zip'
+      - 'app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt'
       - '.github/workflows/build-nexus-v2.yml'
 
 permissions:
@@ -15,23 +15,18 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    timeout-minutes: 35
     steps:
-      - name: Checkout repository
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Verify corrected ZIP
+      - name: Validate original project archive
         shell: bash
         run: |
-          ZIP_FILE="NEXUS-RED-v2-corrigido.zip"
-          if [ ! -f "$ZIP_FILE" ]; then
-            echo "::error::Expected $ZIP_FILE in repository root."
-            exit 1
-          fi
-          unzip -t "$ZIP_FILE"
+          test -s NEXUS-RED-v2-corrigido.zip
+          unzip -t NEXUS-RED-v2-corrigido.zip
 
-      - name: Set up Java 17
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -42,206 +37,51 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
-      - name: Extract corrected Nexus v2
+      - name: Extract original Android project
         shell: bash
         run: |
           mkdir -p extracted
-          unzip -q "NEXUS-RED-v2-corrigido.zip" -d extracted
-
-      - name: Locate Android project
-        shell: bash
-        run: |
+          unzip -q NEXUS-RED-v2-corrigido.zip -d extracted
           SETTINGS="$(find extracted -type f -name settings.gradle.kts -print -quit)"
-          if [ -z "$SETTINGS" ]; then
-            SETTINGS="$(find extracted -type f -name settings.gradle -print -quit)"
-          fi
-          if [ -z "$SETTINGS" ]; then
-            echo "::error::No settings.gradle(.kts) found in ZIP."
-            exit 1
-          fi
+          if [ -z "$SETTINGS" ]; then SETTINGS="$(find extracted -type f -name settings.gradle -print -quit)"; fi
+          test -n "$SETTINGS" || { echo "::error::No Gradle settings file found in archive"; exit 1; }
           PROJECT_DIR="$(dirname "$SETTINGS")"
-          if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ] && [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
-            echo "::error::No app Gradle build file found."
-            exit 1
-          fi
+          test -f "$PROJECT_DIR/app/build.gradle.kts" -o -f "$PROJECT_DIR/app/build.gradle" || { echo "::error::No Android app module found"; exit 1; }
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Inspect Compose screen structure
+      - name: Apply redesigned Nexus interface
         shell: bash
         run: |
-          SOURCE="$PROJECT_DIR/app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt"
-          echo '--- MainActivity.kt screen functions ---'
-          grep -nE '^(private )?fun |^@Composable|NavigationBar|BottomNavigation|Operation|Log|Apps|NexusApp|Scaffold|LazyColumn|Column\(' "$SOURCE" | head -240
-          echo '--- MainActivity.kt relevant source ---'
-          sed -n '280,390p' "$SOURCE"
-
-      - name: Apply Kotlin compile fixes
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-
-          project = Path(os.environ["PROJECT_DIR"])
-          source = project / "app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt"
-          if not source.is_file():
-              raise SystemExit(f"MainActivity.kt not found: {source}")
-
-          code = source.read_text(encoding="utf-8")
-          def add_import(line):
-              global code
-              if line not in code:
-                  anchor = "import androidx.activity.compose.setContent"
-                  if anchor in code:
-                      code = code.replace(anchor, anchor + "\n" + line, 1)
-                  else:
-                      first_import = code.find("import ")
-                      if first_import < 0:
-                          raise SystemExit("Could not locate imports in MainActivity.kt")
-                      code = code[:first_import] + line + "\n" + code[first_import:]
-
-          add_import("import androidx.activity.compose.rememberLauncherForActivityResult")
-          add_import("import android.os.BatteryManager")
-          add_import("import android.content.Context")
-          code = code.replace(
-              "Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)",
-              "Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)"
-          )
-          marker = "@Composable\nprivate fun NexusApp("
-          optin = "@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)\n@Composable\nprivate fun NexusApp("
-          if marker in code and optin not in code:
-              code = code.replace(marker, optin, 1)
-          if "private fun readBatteryPercent(" not in code:
-              code += """
-          
-          private fun readBatteryPercent(context: Context): String {
-              val manager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
-              val level = manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
-              return if (level in 0..100) "$level%" else "INDISPONÍVEL"
-          }
-          """
-          # NEXUS visual refresh: cyberpunk typography, app cards, transitions and persistent bottom navigation.
-          add_import("import androidx.compose.animation.animateContentSize")
-          add_import("import androidx.compose.ui.text.font.FontFamily")
-
-          code = code.replace(
-              'Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 14.dp, vertical = 8.dp)',
-              'Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 14.dp, vertical = 8.dp).animateContentSize()'
-          )
-          code = code.replace(
-              'Modifier.fillMaxWidth().padding(5.dp),',
-              'Modifier.fillMaxWidth().border(1.dp, palette.secondary.copy(alpha = .34f), CutCornerShape(9.dp)).background(Color(0xFF0A0A0A), CutCornerShape(9.dp)).padding(7.dp).animateContentSize(),'
-          )
-          code = code.replace(
-              'Text(app.label, color = Color.White, fontSize = 10.sp, maxLines = 2, textAlign = TextAlign.Center)',
-              'Text(app.label.uppercase(Locale.getDefault()), color = Color.White, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, maxLines = 2, textAlign = TextAlign.Center)'
-          )
-          code = code.replace(
-              'Text("DIRETÓRIO DE APLICATIVOS", palette.accent)',
-              'Text("NEXUS // APP MATRIX", palette.accent)'
-          )
-          code = code.replace(
-              'Text("Toque para abrir · mantenha o ícone pressionado para personalizar a imagem", color = Muted, fontSize = 9.sp)',
-              'Text("TOQUE: INICIAR  •  PRESSIONE: PERSONALIZAR ÍCONE", color = Muted, fontSize = 8.sp, fontFamily = FontFamily.Monospace, letterSpacing = .4.sp)'
-          )
-
-          # Move the existing home-only navigation row to a persistent row after when(page).
-          nav_token = 'NavItem(Icons.Default.Apps, "APPS"'
-          if nav_token in code:
-              row_start = code.rfind("Row(", 0, code.index(nav_token))
-              if row_start >= 0:
-                  open_paren = code.index("(", row_start)
-                  depth, in_string, escaped = 0, False, False
-                  row_end = None
-                  for pos in range(open_paren, len(code)):
-                      ch = code[pos]
-                      if in_string:
-                          if escaped: escaped = False
-                          elif ch == "\\\\": escaped = True
-                          elif ch == '"': in_string = False
-                          continue
-                      if ch == '"': in_string = True
-                      elif ch == "(": depth += 1
-                      elif ch == ")":
-                          depth -= 1
-                          if depth == 0:
-                              row_end = pos + 1
-                              break
-                  if row_end is not None and "NavItem(" in code[row_start:row_end]:
-                      code = code[:row_start] + code[row_end:]
-
-          when_start = code.find("when (page) {")
-          if when_start < 0:
-              raise SystemExit("Could not locate page switch for bottom navigation patch")
-          brace_start = code.find("{", when_start)
-          depth, in_string, escaped = 0, False, False
-          when_end = None
-          for pos in range(brace_start, len(code)):
-              ch = code[pos]
-              if in_string:
-                  if escaped: escaped = False
-                  elif ch == "\\\\": escaped = True
-                  elif ch == '"': in_string = False
-                  continue
-              if ch == '"': in_string = True
-              elif ch == "{": depth += 1
-              elif ch == "}":
-                  depth -= 1
-                  if depth == 0:
-                      when_end = pos + 1
-                      break
-          if when_end is None:
-              raise SystemExit("Could not find end of page switch")
-          bottom_nav = """
-                  Spacer(Modifier.height(8.dp))
-                  Row(
-                      Modifier.fillMaxWidth()
-                          .border(1.dp, palette.accent.copy(alpha = .7f), CutCornerShape(12.dp))
-                          .background(Color(0xF20A0A0A), CutCornerShape(12.dp))
-                          .padding(horizontal = 5.dp, vertical = 5.dp),
-                      horizontalArrangement = Arrangement.SpaceEvenly,
-                      verticalAlignment = Alignment.CenterVertically
-                  ) {
-                      NavItem(Icons.Default.Home, "INÍCIO", page == "home", palette.accent) { page = "home" }
-                      NavItem(Icons.Default.Apps, "APPS", page == "apps", palette.secondary) { page = "apps" }
-                      NavItem(Icons.Default.Apps, "ALERTAS", page == "notifications", palette.accent) { page = "notifications" }
-                      NavItem(Icons.Default.Settings, "AJUSTES", page == "settings", palette.secondary) { page = "settings" }
-                  }
-          """
-          if 'NavItem(Icons.Default.Home, "INÍCIO"' not in code:
-              code = code[:when_end] + bottom_nav + code[when_end:]
-
-          # Give section headings a technical, readable monospace treatment.
-          code = code.replace(
-              'fontSize = 12.sp, fontWeight = FontWeight.Bold)',
-              'fontSize = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)'
-          )
-          source.write_text(code, encoding="utf-8")
-          print("Applied Kotlin compile fixes and NEXUS visual refresh.")
-          PY
-
-      - name: Verify patched UI and permissions hooks
-        shell: bash
-        run: |
-          SOURCE="$PROJECT_DIR/app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt"
-          test -s "$SOURCE"
-          echo '--- Navigation items after patch ---'
-          grep -nE 'NavItem\\(|NavigationBar|BottomNavigation' "$SOURCE" || true
-          echo '--- Nexus app screen and operation log markers ---'
-          grep -nEi 'APP MATRIX|DIRETÓRIO DE APLICATIVOS|operation|operaç|log|permiss|notification|notifica' "$SOURCE" | head -100 || true
-          echo '--- Compile inputs ---'
-          find "$PROJECT_DIR/app/src/main" -maxdepth 4 -type f | sort | head -100
+          TARGET="$PROJECT_DIR/app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt"
+          test -s app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt
+          mkdir -p "$(dirname "$TARGET")"
+          cp app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt "$TARGET"
+          echo "Redesigned launcher source applied:"
+          wc -l "$TARGET"
+          grep -q 'NEXUS // APP MATRIX' "$TARGET"
+          grep -q 'CENTRAL DE ALERTAS' "$TARGET"
+          grep -q 'CONFIGURAÇÕES // HUD' "$TARGET"
+          grep -q 'REGISTRO DE OPERAÇÕES' "$TARGET"
 
       - name: Build debug APK
         shell: bash
         run: |
           cd "$PROJECT_DIR"
-          gradle assembleDebug --no-daemon
+          gradle assembleDebug --no-daemon --stacktrace
 
-      - name: Upload debug APK artifact
+      - name: Verify APK
+        shell: bash
+        run: |
+          APK="$(find "$PROJECT_DIR/app/build/outputs/apk/debug" -type f -name '*.apk' -print -quit)"
+          test -n "$APK" || { echo "::error::APK was not generated"; exit 1; }
+          ls -lh "$APK"
+          mkdir -p "$GITHUB_WORKSPACE/output"
+          cp "$APK" "$GITHUB_WORKSPACE/output/NEXUS-Cyber-Launcher-debug.apk"
+
+      - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: NEXUS-RED-v2-corrigido-debug-APK
-          path: extracted/**/app/build/outputs/apk/debug/*.apk
+          name: NEXUS-Cyber-Launcher-APK
+          path: output/NEXUS-Cyber-Launcher-debug.apk
           if-no-files-found: error
           retention-days: 14

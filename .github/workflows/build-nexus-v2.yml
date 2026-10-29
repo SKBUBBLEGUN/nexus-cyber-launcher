@@ -1,12 +1,13 @@
-name: NEXUS Cyber Launcher - Build and Verify
+name: Nexus - Build and Verify
 
 on:
   workflow_dispatch:
   push:
-    branches: [main, 'redesign/**']
+    branches: [main, 'redesign/**', 'fix/**']
     paths:
       - 'NEXUS-RED-v2-corrigido.zip'
       - 'app/**'
+      - 'assets/**'
       - '.github/workflows/build-nexus-v2.yml'
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
@@ -15,6 +16,7 @@ on:
     paths:
       - 'NEXUS-RED-v2-corrigido.zip'
       - 'app/**'
+      - 'assets/**'
       - '.github/workflows/build-nexus-v2.yml'
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
@@ -28,7 +30,7 @@ concurrency:
 
 jobs:
   build:
-    name: Compile, test, and package Android APK
+    name: Compile, test, and package Nexus APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -49,6 +51,14 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
+
+      - name: Set up Python for launcher icon generation
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install image processing dependency
+        run: python -m pip install --upgrade Pillow
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -88,6 +98,64 @@ jobs:
           grep -q 'NEXUS // APP MATRIX' "$TARGET"
           echo "Current Nexus implementation copied and feature markers verified."
 
+      - name: Apply Nexus name and oni launcher icon
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+
+          project = Path("$PROJECT_DIR")
+          # Keep the Android launcher label exactly as requested.
+          manifest = project / "app/src/main/AndroidManifest.xml"
+          source = manifest.read_text(encoding="utf-8")
+          source = source.replace('android:label="NEXUS Cyber Launcher"', 'android:label="Nexus"')
+          source = source.replace('android:label="NEXUS Cyber Launcher"', 'android:label="Nexus"')
+          if 'android:label="Nexus"' not in source:
+              source = source.replace("<application", '<application\n        android:label="Nexus"', 1)
+          source = source.replace("<application", '<application\n        android:icon="@mipmap/ic_launcher"\n        android:roundIcon="@mipmap/ic_launcher_round"', 1)
+          manifest.write_text(source, encoding="utf-8")
+
+          icon_source = Path("assets/oni-icon.jpg")
+          if not icon_source.is_file():
+              raise SystemExit("Missing official red/white oni artwork at assets/oni-icon.jpg")
+          with Image.open(icon_source) as image:
+              art = image.convert("RGB")
+              for density, size in [("mdpi",48),("hdpi",72),("xhdpi",96),("xxhdpi",144),("xxxhdpi",192)]:
+                  folder = project / f"app/src/main/res/mipmap-{density}"
+                  folder.mkdir(parents=True, exist_ok=True)
+                  resized = art.resize((size,size), Image.Resampling.LANCZOS)
+                  resized.save(folder / "ic_launcher.png", format="PNG", optimize=True)
+                  resized.save(folder / "ic_launcher_round.png", format="PNG", optimize=True)
+
+              # Android adaptive icons use a safe-zone foreground and a black background.
+              fg_dir = project / "app/src/main/res/drawable-nodpi"
+              fg_dir.mkdir(parents=True, exist_ok=True)
+              foreground = Image.new("RGBA", (432,432), (0,0,0,0))
+              safe_art = art.resize((330,330), Image.Resampling.LANCZOS).convert("RGBA")
+              foreground.alpha_composite(safe_art, ((432-330)//2,(432-330)//2))
+              foreground.save(fg_dir / "ic_launcher_foreground.png", format="PNG", optimize=True)
+
+          values = project / "app/src/main/res/values"
+          values.mkdir(parents=True, exist_ok=True)
+          colors = values / "ic_launcher_colors.xml"
+          colors.write_text('<?xml version="1.0" encoding="utf-8"?>\n<resources><color name="ic_launcher_background">#000000</color></resources>\n', encoding="utf-8")
+          adaptive = project / "app/src/main/res/mipmap-anydpi-v26"
+          adaptive.mkdir(parents=True, exist_ok=True)
+          for name in ("ic_launcher", "ic_launcher_round"):
+              (adaptive / f"{name}.xml").write_text(
+                  '<?xml version="1.0" encoding="utf-8"?>\n'
+                  '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
+                  '    <background android:drawable="@color/ic_launcher_background"/>\n'
+                  '    <foreground android:drawable="@drawable/ic_launcher_foreground"/>\n'
+                  '</adaptive-icon>\n', encoding="utf-8")
+          print("App label set to Nexus; legacy and adaptive oni icons generated.")
+          PY
+          grep -q 'android:label="Nexus"' "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
+          test -s "$PROJECT_DIR/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png"
+          test -s "$PROJECT_DIR/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"
+
       - name: Run unit tests
         shell: bash
         run: |
@@ -109,15 +177,15 @@ jobs:
           unzip -t "$APK"
           ls -lh "$APK"
           mkdir -p "$GITHUB_WORKSPACE/output"
-          cp "$APK" "$GITHUB_WORKSPACE/output/NEXUS-Cyber-Launcher-debug.apk"
-          sha256sum "$GITHUB_WORKSPACE/output/NEXUS-Cyber-Launcher-debug.apk" | tee "$GITHUB_WORKSPACE/output/SHA256SUMS.txt"
+          cp "$APK" "$GITHUB_WORKSPACE/output/Nexus-debug.apk"
+          sha256sum "$GITHUB_WORKSPACE/output/Nexus-debug.apk" | tee "$GITHUB_WORKSPACE/output/SHA256SUMS.txt"
 
       - name: Upload installable APK and checksum
         uses: actions/upload-artifact@v4
         with:
-          name: NEXUS-Cyber-Launcher-debug
+          name: Nexus-Android-debug
           path: |
-            output/NEXUS-Cyber-Launcher-debug.apk
+            output/Nexus-debug.apk
             output/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30

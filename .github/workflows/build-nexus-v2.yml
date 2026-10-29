@@ -106,7 +106,7 @@ jobs:
           from pathlib import Path
           from PIL import Image
 
-          project = Path("$PROJECT_DIR")
+          project = Path(__import__("os").environ["PROJECT_DIR"])
           # Keep the Android launcher label exactly as requested.
           manifest = project / "app/src/main/AndroidManifest.xml"
           source = manifest.read_text(encoding="utf-8")

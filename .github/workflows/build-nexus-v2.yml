@@ -119,6 +119,16 @@ jobs:
           print("Applied compile fixes to", source)
           PY
 
+      - name: Inspect app UI source for redesign
+        shell: bash
+        run: |
+          echo "=== MainActivity.kt path ==="
+          find "$PROJECT_DIR/app/src/main" -type f -name '*.kt' -print
+          echo "=== MainActivity.kt ==="
+          sed -n '1,420p' "$PROJECT_DIR/app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt"
+          echo "=== resource files ==="
+          find "$PROJECT_DIR/app/src/main/res" -maxdepth 3 -type f -print | head -100
+
       - name: Build debug APK
         shell: bash
         run: |

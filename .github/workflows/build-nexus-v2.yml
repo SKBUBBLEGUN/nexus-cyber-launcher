@@ -120,8 +120,104 @@ jobs:
               return if (level in 0..100) "$level%" else "INDISPONÍVEL"
           }
           """
+          # NEXUS visual refresh: cyberpunk typography, app cards, transitions and persistent bottom navigation.
+          add_import("import androidx.compose.animation.animateContentSize")
+          add_import("import androidx.compose.ui.text.font.FontFamily")
+
+          code = code.replace(
+              'Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 14.dp, vertical = 8.dp)',
+              'Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 14.dp, vertical = 8.dp).animateContentSize()'
+          )
+          code = code.replace(
+              'Modifier.fillMaxWidth().padding(5.dp),',
+              'Modifier.fillMaxWidth().border(1.dp, palette.secondary.copy(alpha = .34f), CutCornerShape(9.dp)).background(Color(0xFF0A0A0A), CutCornerShape(9.dp)).padding(7.dp).animateContentSize(),'
+          )
+          code = code.replace(
+              'Text(app.label, color = Color.White, fontSize = 10.sp, maxLines = 2, textAlign = TextAlign.Center)',
+              'Text(app.label.uppercase(Locale.getDefault()), color = Color.White, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, maxLines = 2, textAlign = TextAlign.Center)'
+          )
+          code = code.replace(
+              'Text("DIRETÓRIO DE APLICATIVOS", palette.accent)',
+              'Text("NEXUS // APP MATRIX", palette.accent)'
+          )
+          code = code.replace(
+              'Text("Toque para abrir · mantenha o ícone pressionado para personalizar a imagem", color = Muted, fontSize = 9.sp)',
+              'Text("TOQUE: INICIAR  •  PRESSIONE: PERSONALIZAR ÍCONE", color = Muted, fontSize = 8.sp, fontFamily = FontFamily.Monospace, letterSpacing = .4.sp)'
+          )
+
+          # Move the existing home-only navigation row to a persistent row after when(page).
+          nav_token = 'NavItem(Icons.Default.Apps, "APPS"'
+          if nav_token in code:
+              row_start = code.rfind("Row(", 0, code.index(nav_token))
+              if row_start >= 0:
+                  open_paren = code.index("(", row_start)
+                  depth, in_string, escaped = 0, False, False
+                  row_end = None
+                  for pos in range(open_paren, len(code)):
+                      ch = code[pos]
+                      if in_string:
+                          if escaped: escaped = False
+                          elif ch == "\\\\": escaped = True
+                          elif ch == '"': in_string = False
+                          continue
+                      if ch == '"': in_string = True
+                      elif ch == "(": depth += 1
+                      elif ch == ")":
+                          depth -= 1
+                          if depth == 0:
+                              row_end = pos + 1
+                              break
+                  if row_end is not None and "NavItem(" in code[row_start:row_end]:
+                      code = code[:row_start] + code[row_end:]
+
+          when_start = code.find("when (page) {")
+          if when_start < 0:
+              raise SystemExit("Could not locate page switch for bottom navigation patch")
+          brace_start = code.find("{", when_start)
+          depth, in_string, escaped = 0, False, False
+          when_end = None
+          for pos in range(brace_start, len(code)):
+              ch = code[pos]
+              if in_string:
+                  if escaped: escaped = False
+                  elif ch == "\\\\": escaped = True
+                  elif ch == '"': in_string = False
+                  continue
+              if ch == '"': in_string = True
+              elif ch == "{": depth += 1
+              elif ch == "}":
+                  depth -= 1
+                  if depth == 0:
+                      when_end = pos + 1
+                      break
+          if when_end is None:
+              raise SystemExit("Could not find end of page switch")
+          bottom_nav = """
+                  Spacer(Modifier.height(8.dp))
+                  Row(
+                      Modifier.fillMaxWidth()
+                          .border(1.dp, palette.accent.copy(alpha = .7f), CutCornerShape(12.dp))
+                          .background(Color(0xF20A0A0A), CutCornerShape(12.dp))
+                          .padding(horizontal = 5.dp, vertical = 5.dp),
+                      horizontalArrangement = Arrangement.SpaceEvenly,
+                      verticalAlignment = Alignment.CenterVertically
+                  ) {
+                      NavItem(Icons.Default.Home, "INÍCIO", page == "home", palette.accent) { page = "home" }
+                      NavItem(Icons.Default.Apps, "APPS", page == "apps", palette.secondary) { page = "apps" }
+                      NavItem(Icons.Default.Apps, "ALERTAS", page == "notifications", palette.accent) { page = "notifications" }
+                      NavItem(Icons.Default.Settings, "AJUSTES", page == "settings", palette.secondary) { page = "settings" }
+                  }
+          """
+          if 'NavItem(Icons.Default.Home, "INÍCIO"' not in code:
+              code = code[:when_end] + bottom_nav + code[when_end:]
+
+          # Give section headings a technical, readable monospace treatment.
+          code = code.replace(
+              'fontSize = 12.sp, fontWeight = FontWeight.Bold)',
+              'fontSize = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)'
+          )
           source.write_text(code, encoding="utf-8")
-          print("Applied Kotlin compile fixes.")
+          print("Applied Kotlin compile fixes and NEXUS visual refresh.")
           PY
 
       - name: Build debug APK

@@ -25,7 +25,10 @@ jobs:
         shell: bash
         run: |
           ZIP_FILE="NEXUS-RED-v2-corrigido.zip"
-          test -f "$ZIP_FILE"
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "::error::Expected $ZIP_FILE in repository root."
+            exit 1
+          fi
           unzip -t "$ZIP_FILE"
 
       - name: Set up Java 17
@@ -49,18 +52,72 @@ jobs:
         shell: bash
         run: |
           SETTINGS="$(find extracted -type f -name settings.gradle.kts -print -quit)"
-          if [ -z "$SETTINGS" ]; then SETTINGS="$(find extracted -type f -name settings.gradle -print -quit)"; fi
-          test -n "$SETTINGS"
+          if [ -z "$SETTINGS" ]; then
+            SETTINGS="$(find extracted -type f -name settings.gradle -print -quit)"
+          fi
+          if [ -z "$SETTINGS" ]; then
+            echo "::error::No settings.gradle(.kts) found in ZIP."
+            exit 1
+          fi
           PROJECT_DIR="$(dirname "$SETTINGS")"
+          if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ] && [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
+            echo "::error::No app Gradle build file found."
+            exit 1
+          fi
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Inspect UI source temporarily
+      - name: Apply Kotlin compile fixes
         shell: bash
         run: |
-          SRC="$PROJECT_DIR/app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt"
-          echo "===== MAINACTIVITY SOURCE BEGIN ====="
-          cat "$SRC"
-          echo "===== MAINACTIVITY SOURCE END ====="
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          project = Path(os.environ["PROJECT_DIR"])
+          source = project / "app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt"
+          if not source.is_file():
+              raise SystemExit(f"MainActivity.kt not found: {source}")
+
+          code = source.read_text(encoding="utf-8")
+          def add_import(line):
+              global code
+              if line not in code:
+                  anchor = "import androidx.activity.compose.setContent"
+                  if anchor in code:
+                      code = code.replace(anchor, anchor + "\\n" + line, 1)
+                  else:
+                      first_import = code.find("import ")
+                      if first_import < 0:
+                          raise SystemExit("Could not locate imports in MainActivity.kt")
+                      code = code[:first_import] + line + "\\n" + code[first_import:]
+
+          add_import("import androidx.activity.compose.rememberLauncherForActivityResult")
+          add_import("import android.os.BatteryManager")
+          add_import("import android.content.Context")
+          code = code.replace(
+              "Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)",
+              "Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)"
+          )
+          code = code.replace(
+              "Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS",
+              "android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"
+          )
+          marker = "@Composable\\nprivate fun NexusApp("
+          optin = "@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)\\n@Composable\\nprivate fun NexusApp("
+          if marker in code and optin not in code:
+              code = code.replace(marker, optin, 1)
+          if "private fun readBatteryPercent(" not in code:
+              code += """
+          
+          private fun readBatteryPercent(context: Context): String {
+              val manager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+              val level = manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+              return if (level in 0..100) "$level%" else "INDISPONÍVEL"
+          }
+          """
+          source.write_text(code, encoding="utf-8")
+          print("Applied Kotlin compile fixes.")
+          PY
 
       - name: Build debug APK
         shell: bash

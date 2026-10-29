@@ -1,21 +1,36 @@
-name: NEXUS Cyber Launcher - Build APK
+name: NEXUS Cyber Launcher - Build and Verify
 
 on:
   workflow_dispatch:
   push:
+    branches: [main, 'redesign/**']
+    paths:
+      - 'NEXUS-RED-v2-corrigido.zip'
+      - 'app/**'
+      - '.github/workflows/build-nexus-v2.yml'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+  pull_request:
     branches: [main]
     paths:
       - 'NEXUS-RED-v2-corrigido.zip'
-      - 'app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt'
+      - 'app/**'
       - '.github/workflows/build-nexus-v2.yml'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
 
 permissions:
   contents: read
 
+concurrency:
+  group: nexus-android-build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
+    name: Compile, test, and package Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -23,14 +38,17 @@ jobs:
       - name: Validate original project archive
         shell: bash
         run: |
+          set -euo pipefail
           test -s NEXUS-RED-v2-corrigido.zip
           unzip -t NEXUS-RED-v2-corrigido.zip
+          echo "Archive integrity verified."
 
-      - name: Set up Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -40,28 +58,41 @@ jobs:
       - name: Extract original Android project
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p extracted
           unzip -q NEXUS-RED-v2-corrigido.zip -d extracted
           SETTINGS="$(find extracted -type f -name settings.gradle.kts -print -quit)"
-          if [ -z "$SETTINGS" ]; then SETTINGS="$(find extracted -type f -name settings.gradle -print -quit)"; fi
+          if [ -z "$SETTINGS" ]; then
+            SETTINGS="$(find extracted -type f -name settings.gradle -print -quit)"
+          fi
           test -n "$SETTINGS" || { echo "::error::No Gradle settings file found in archive"; exit 1; }
           PROJECT_DIR="$(dirname "$SETTINGS")"
-          test -f "$PROJECT_DIR/app/build.gradle.kts" -o -f "$PROJECT_DIR/app/build.gradle" || { echo "::error::No Android app module found"; exit 1; }
+          test -f "$PROJECT_DIR/app/build.gradle.kts" -o -f "$PROJECT_DIR/app/build.gradle" || {
+            echo "::error::No Android app module found in archive"; exit 1;
+          }
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Building Android project at: $PROJECT_DIR"
 
-      - name: Apply redesigned Nexus interface
+      - name: Apply current Nexus source
         shell: bash
         run: |
+          set -euo pipefail
           TARGET="$PROJECT_DIR/app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt"
-          test -s app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt
+          SOURCE="app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt"
+          test -s "$SOURCE"
           mkdir -p "$(dirname "$TARGET")"
-          cp app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt "$TARGET"
-          echo "Redesigned launcher source applied:"
-          wc -l "$TARGET"
-          grep -q 'NEXUS // APP MATRIX' "$TARGET"
+          cp "$SOURCE" "$TARGET"
+          grep -q 'PALETTES = listOf' "$TARGET"
+          grep -q 'PALETA APLICADA' "$TARGET"
           grep -q 'CENTRAL DE ALERTAS' "$TARGET"
-          grep -q 'CONFIGURAÇÕES // HUD' "$TARGET"
-          grep -q 'REGISTRO DE OPERAÇÕES' "$TARGET"
+          grep -q 'NEXUS // APP MATRIX' "$TARGET"
+          echo "Current Nexus implementation copied and feature markers verified."
+
+      - name: Run unit tests
+        shell: bash
+        run: |
+          cd "$PROJECT_DIR"
+          gradle testDebugUnitTest --no-daemon --stacktrace
 
       - name: Build debug APK
         shell: bash
@@ -69,19 +100,24 @@ jobs:
           cd "$PROJECT_DIR"
           gradle assembleDebug --no-daemon --stacktrace
 
-      - name: Verify APK
+      - name: Verify generated APK
         shell: bash
         run: |
+          set -euo pipefail
           APK="$(find "$PROJECT_DIR/app/build/outputs/apk/debug" -type f -name '*.apk' -print -quit)"
           test -n "$APK" || { echo "::error::APK was not generated"; exit 1; }
+          unzip -t "$APK"
           ls -lh "$APK"
           mkdir -p "$GITHUB_WORKSPACE/output"
           cp "$APK" "$GITHUB_WORKSPACE/output/NEXUS-Cyber-Launcher-debug.apk"
+          sha256sum "$GITHUB_WORKSPACE/output/NEXUS-Cyber-Launcher-debug.apk" | tee "$GITHUB_WORKSPACE/output/SHA256SUMS.txt"
 
-      - name: Upload installable APK
+      - name: Upload installable APK and checksum
         uses: actions/upload-artifact@v4
         with:
-          name: NEXUS-Cyber-Launcher-APK
-          path: output/NEXUS-Cyber-Launcher-debug.apk
+          name: NEXUS-Cyber-Launcher-debug
+          path: |
+            output/NEXUS-Cyber-Launcher-debug.apk
+            output/SHA256SUMS.txt
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30

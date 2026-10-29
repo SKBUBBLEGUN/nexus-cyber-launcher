@@ -146,7 +146,7 @@ jobs:
                       label = "nexus_page_transition"
                   ) { activePage ->
                       when (activePage) {"""
-          if "label = \\"nexus_page_transition\\"" not in code:
+          if "nexus_page_transition" not in code:
               if old not in code:
                   raise SystemExit("Could not find main page switch; refusing to patch blindly.")
               code = code.replace(old, new, 1)

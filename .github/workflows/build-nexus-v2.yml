@@ -75,6 +75,50 @@ jobs:
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Found Android project at: $PROJECT_DIR"
 
+      - name: Apply Kotlin compile fixes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          project = Path(os.environ["PROJECT_DIR"])
+          source = project / "app/src/main/java/com/nexus/cyberlauncher/MainActivity.kt"
+          if not source.is_file():
+              raise SystemExit(f"MainActivity.kt not found: {source}")
+
+          code = source.read_text(encoding="utf-8")
+          if "import androidx.activity.compose.rememberLauncherForActivityResult" not in code:
+              code = code.replace(
+                  "import androidx.activity.compose.setContent\\n",
+                  "import androidx.activity.compose.setContent\\nimport androidx.activity.compose.rememberLauncherForActivityResult\\n",
+                  1
+              )
+          if "import android.os.BatteryManager" not in code:
+              code = code.replace("import android.os.Bundle\\n", "import android.os.Bundle\\nimport android.os.BatteryManager\\n", 1)
+          code = code.replace(
+              "Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)",
+              "Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)"
+          )
+          if "@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)\\n@Composable\\nprivate fun NexusApp(" not in code:
+              code = code.replace(
+                  "@Composable\\nprivate fun NexusApp(",
+                  "@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)\\n@Composable\\nprivate fun NexusApp(",
+                  1
+              )
+          if "private fun readBatteryPercent(" not in code:
+              code += """\\n
+          /** Returns the device battery level as a percentage, or an unavailable message. */
+          private fun readBatteryPercent(context: Context): String {
+              val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+              val level = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+              return if (level in 0..100) "$level%" else "INDISPONÍVEL"
+          }
+          """
+          source.write_text(code, encoding="utf-8")
+          print("Applied compile fixes to", source)
+          PY
+
       - name: Build debug APK
         shell: bash
         run: |

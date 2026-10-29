@@ -22,6 +22,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -31,8 +33,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -50,8 +54,18 @@ import java.util.Locale
 private val BG = Color(0xFF07090D)
 private val CARD = Color(0xFF111720)
 private val CARD2 = Color(0xFF19222D)
-private val RED = Color(0xFFFF3155)
-private val CYAN = Color(0xFF42E8F5)
+private data class NexusPalette(val name: String, val accent: Color, val secondary: Color, val glow: Color)
+private val PALETTES = listOf(
+    NexusPalette("REDLINE", Color(0xFFFF3155), Color(0xFFFF8A65), Color(0x33FF3155)),
+    NexusPalette("CYBER CYAN", Color(0xFF42E8F5), Color(0xFF80FFEA), Color(0x3342E8F5)),
+    NexusPalette("VIOLET", Color(0xFFB388FF), Color(0xFFE1BEE7), Color(0x33B388FF)),
+    NexusPalette("TOXIC GREEN", Color(0xFFB7FF3C), Color(0xFF64FF8A), Color(0x33B7FF3C)),
+    NexusPalette("GOLD", Color(0xFFFFD166), Color(0xFFFFAB40), Color(0x33FFD166)),
+    NexusPalette("ELECTRIC BLUE", Color(0xFF4D8DFF), Color(0xFF80B7FF), Color(0x334D8DFF)),
+    NexusPalette("HOT PINK", Color(0xFFFF4FA3), Color(0xFFFF8AC5), Color(0x33FF4FA3)),
+    NexusPalette("ICE", Color(0xFFE8F1FF), Color(0xFF9FB8D8), Color(0x33E8F1FF))
+)
+private val ONLINE = Color(0xFF63F5A6)
 private val DIM = Color(0xFF8C9AA9)
 private val FG = Color(0xFFF0F5F8)
 
@@ -70,15 +84,19 @@ private data class AppInfo(val label: String, val pkg: String, val icon: android
     var page by remember { mutableStateOf("BASE") }
     var query by remember { mutableStateOf("") }
     var search by remember { mutableStateOf(false) }
-    var cyan by remember { mutableStateOf(false) }
-    var compact by remember { mutableStateOf(true) }
+    val prefs = remember { ctx.getSharedPreferences("nexus_preferences", Context.MODE_PRIVATE) }
+    var selectedPalette by remember { mutableIntStateOf(prefs.getInt("palette_index", 0).coerceIn(PALETTES.indices)) }
+    var compact by remember { mutableStateOf(prefs.getBoolean("compact_log", true)) }
     var showHelp by remember { mutableStateOf(false) }
-    var widgets by remember { mutableStateOf(setOf("BATERIA", "REDE", "DATA")) }
+    var widgets by remember { mutableStateOf(prefs.getStringSet("widgets", setOf("BATERIA", "REDE", "DATA"))?.toSet() ?: setOf("BATERIA", "REDE", "DATA")) }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(1000) } }
     var log by remember { mutableStateOf(listOf("NÚCLEO NEXUS ONLINE", "INTERFACE HUD INICIALIZADA")) }
-    val accent = if (cyan) CYAN else RED
-    val battery = remember { (ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager).getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).coerceIn(0, 100) }
-    val clock = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-    val date = SimpleDateFormat("EEE, dd MMM yyyy", Locale("pt", "BR")).format(Date()).uppercase(Locale("pt", "BR"))
+    val palette = PALETTES[selectedPalette]
+    val accent = palette.accent
+    val battery = (ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager).getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).coerceIn(0, 100)
+    val clock = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(now))
+    val date = SimpleDateFormat("EEE, dd MMM yyyy", Locale("pt", "BR")).format(Date(now)).uppercase(Locale("pt", "BR"))
     val apps = remember {
         ctx.packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
             .filter { ctx.packageManager.getLaunchIntentForPackage(it.packageName) != null }
@@ -105,10 +123,10 @@ private data class AppInfo(val label: String, val pkg: String, val icon: android
             if (search) OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text("PESQUISAR APP…", color = DIM) }, trailingIcon = { IconButton(onClick = { search = false; query = "" }) { Icon(Icons.Default.Close, null, tint = accent) } })
             AnimatedContent(targetState = page, label = "page", modifier = Modifier.weight(1f)) { p ->
                 when (p) {
-                    "BASE" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    "BASE" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Panel(accent, "STATUS DO SISTEMA", Icons.Default.Memory, Modifier.weight(1f)) {
-                                Text("● ONLINE", color = CYAN, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                Text("● ONLINE", color = ONLINE, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                                 Text("NÚCLEO ESTÁVEL", color = FG, fontSize = 9.sp)
                                 Text("REDE: " + network(ctx), color = DIM, fontSize = 9.sp)
                             }
@@ -125,7 +143,7 @@ private data class AppInfo(val label: String, val pkg: String, val icon: android
                                 widgets.forEach { w ->
                                     Column(Modifier.weight(1f).background(CARD2, RoundedCornerShape(7.dp)).padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                         Icon(when (w) { "BATERIA" -> Icons.Default.BatteryChargingFull; "REDE" -> Icons.Default.Wifi; else -> Icons.Default.CalendarMonth }, null, tint = accent)
-                                        Text(when (w) { "BATERIA" -> battery.toString() + "%"; "REDE" -> network(ctx); else -> SimpleDateFormat("dd/MM", Locale.getDefault()).format(Date()) }, color = FG, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                                        Text(when (w) { "BATERIA" -> battery.toString() + "%"; "REDE" -> network(ctx); else -> SimpleDateFormat("dd/MM", Locale.getDefault()).format(Date(now)) }, color = FG, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                                         Text(w, color = DIM, fontSize = 7.sp, fontFamily = FontFamily.Monospace)
                                     }
                                 }
@@ -139,7 +157,7 @@ private data class AppInfo(val label: String, val pkg: String, val icon: android
                         }
                         Panel(accent, "REGISTRO DE OPERAÇÕES", Icons.Default.Terminal) {
                             log.take(if (compact) 2 else 5).forEach { Text("› " + it, color = DIM, fontSize = 9.sp, fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                            Text(if (compact) "EXPANDIR LOG +" else "RECOLHER LOG −", color = accent, fontSize = 8.sp, modifier = Modifier.clickable { compact = !compact })
+                            Text(if (compact) "EXPANDIR LOG +" else "RECOLHER LOG −", color = accent, fontSize = 8.sp, modifier = Modifier.clickable { compact = !compact; prefs.edit().putBoolean("compact_log", compact).apply() })
                         }
                     }
                     "APPS" -> Column(Modifier.fillMaxSize()) {
@@ -157,7 +175,7 @@ private data class AppInfo(val label: String, val pkg: String, val icon: android
                             }
                         }
                     }
-                    "ALERTAS" -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    "ALERTAS" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("CENTRAL DE ALERTAS", color = accent, fontSize = 19.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                         Text("EVENTOS DO LAUNCHER", color = DIM, fontSize = 9.sp)
                         Panel(accent, "LOG DE OPERAÇÕES", Icons.Default.Notifications) {
@@ -166,14 +184,32 @@ private data class AppInfo(val label: String, val pkg: String, val icon: android
                         }
                         Text("O Android não permite ler notificações privadas sem acesso especial ativado manualmente.", color = DIM, fontSize = 10.sp)
                     }
-                    else -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("CONFIGURAÇÕES // HUD", color = accent, fontSize = 19.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                         Panel(accent, "IDENTIDADE VISUAL", Icons.Default.Palette) {
-                            Setting("PALETA CYBER", "Vermelho / ciano") { Switch(checked = cyan, onCheckedChange = { cyan = it }) }
-                            Setting("LOG COMPACTO", "Mais espaço na base") { Switch(checked = compact, onCheckedChange = { compact = it }) }
+                            Text("ESCOLHA SUA PALETA", color = DIM, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                            PALETTES.chunked(4).forEachIndexed { rowIndex, rowPalettes ->
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                    rowPalettes.forEachIndexed { colIndex, option ->
+                                        val index = rowIndex * 4 + colIndex
+                                        Column(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (selectedPalette == index) option.glow else CARD2).border(BorderStroke(if (selectedPalette == index) 2.dp else 1.dp, if (selectedPalette == index) option.accent else DIM.copy(alpha = .25f)), RoundedCornerShape(8.dp)).clickable {
+                                            selectedPalette = index
+                                            prefs.edit().putInt("palette_index", index).apply()
+                                            log = (listOf("PALETA APLICADA: " + option.name) + log).take(5)
+                                        }.padding(vertical = 10.dp, horizontal = 3.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                            Box(Modifier.size(23.dp).background(option.accent, RoundedCornerShape(50)).border(1.dp, FG.copy(alpha = .4f), RoundedCornerShape(50)))
+                                            Text(option.name, color = if (selectedPalette == index) option.accent else DIM, fontSize = 7.sp, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center, maxLines = 2, minLines = 2)
+                                            if (selectedPalette == index) Icon(Icons.Default.CheckCircle, null, tint = option.accent, modifier = Modifier.size(13.dp))
+                                        }
+                                    }
+                                    repeat(4 - rowPalettes.size) { Spacer(Modifier.weight(1f)) }
+                                }
+                            }
+                            Text("A paleta escolhida é salva automaticamente e aplicada em toda a interface.", color = DIM, fontSize = 9.sp)
+                            Setting("LOG COMPACTO", "Mais espaço na base") { Switch(checked = compact, onCheckedChange = { compact = it; prefs.edit().putBoolean("compact_log", it).apply() }) }
                         }
                         Panel(accent, "WIDGETS DA BASE", Icons.Default.Dashboard) {
-                            listOf("BATERIA", "REDE", "DATA").forEach { w -> Setting(w, if (w in widgets) "ATIVO" else "DESATIVADO") { Checkbox(checked = w in widgets, onCheckedChange = { on -> widgets = if (on) widgets + w else widgets - w }, colors = CheckboxDefaults.colors(checkedColor = accent)) } }
+                            listOf("BATERIA", "REDE", "DATA").forEach { w -> Setting(w, if (w in widgets) "ATIVO" else "DESATIVADO") { Checkbox(checked = w in widgets, onCheckedChange = { on -> widgets = if (on) widgets + w else widgets - w; prefs.edit().putStringSet("widgets", widgets).apply() }, colors = CheckboxDefaults.colors(checkedColor = accent)) } }
                         }
                         Panel(accent, "PERMISSÕES E SISTEMA", Icons.Default.Security) {
                             Action("SOLICITAR NOTIFICAÇÕES", Icons.Default.NotificationsActive, accent, Modifier.fillMaxWidth()) { if (Build.VERSION.SDK_INT >= 33) notificationRequest.launch(Manifest.permission.POST_NOTIFICATIONS) else log = listOf("ANDROID NÃO EXIGE PERMISSÃO NESTA VERSÃO") + log }

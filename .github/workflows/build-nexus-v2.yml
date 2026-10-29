@@ -131,8 +131,8 @@ jobs:
 
           # Compose page transitions and animation primitives.
           if "import androidx.compose.animation.*" not in code:
-              code = code.replace("import androidx.compose.foundation.background\\n",
-                                  "import androidx.compose.animation.*\\nimport androidx.compose.animation.core.*\\nimport androidx.compose.foundation.background\\n", 1)
+              code = code.replace("import androidx.compose.foundation.background\n",
+                                  "import androidx.compose.animation.*\nimport androidx.compose.animation.core.*\nimport androidx.compose.foundation.background\n", 1)
 
           old = "                when (page) {"
           new = """                AnimatedContent(
@@ -161,7 +161,7 @@ jobs:
                 Row("""
               if close_marker not in code:
                   raise SystemExit("Could not find end of page switch; refusing to patch blindly.")
-              code = code.replace(close_marker, close_marker.replace("                }", "                      }\\n                  }", 1), 1)
+              code = code.replace(close_marker, close_marker.replace("                }", "                      }\n                  }", 1), 1)
 
           # Subtle breathing pulse on the online indicator.
           header_marker = """private fun Header(palette: NexusPalette) {
